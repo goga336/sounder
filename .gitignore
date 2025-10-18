@@ -1,0 +1,68 @@
+# Build outputs
+Debug/
+Release/
+build/
+*.elf
+*.bin
+*.hex
+*.map
+*.lst
+*.o
+*.d
+*.su
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# STM32CubeIDE
+.metadata/
+*.launch
+.project
+.cproject
+
+# Keil uVision
+*.uvgui.*
+*.uvoptx
+*.uvprojx
+*.crf
+*.lnp
+*.dep
+*.iex
+*.htm
+*.sct
+*.axf
+
+# IAR Embedded Workbench
+*.eww
+*.ewp
+*.ewd
+*.dep
+*.log
+
+# CrossWorks
+*.hzp
+*.hzs
+
+# Libopencm3
+libopencm3/
+
+# Doxygen
+docs/html/
+docs/latex/
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Backup files
+*.bak
+*.backup
