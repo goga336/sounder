@@ -37,6 +37,8 @@
 #define TRIG_PORT GPIOA
 #define ECHO_PIN GPIO_PIN_15
 #define ECHO_PORT GPIOA
+#define HISTORYSIZE  64
+#define MAXDEPTH  400
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -69,6 +71,76 @@ void HAL_Delay_us(uint16_t us)
     __HAL_TIM_SET_COUNTER(&htim1, 0);
     while (__HAL_TIM_GET_COUNTER(&htim1) < us);
 }
+
+uint16_t getDistance(){
+	uint16_t distance = 0;
+	 // ★★ ЗАПУСКАЮЩИЙ ИМПУЛЬС НА TRIG ★★
+	HAL_GPIO_WritePin(TRIG_PORT, TRIG_PIN, GPIO_PIN_RESET);
+	HAL_Delay_us(2);
+	HAL_GPIO_WritePin(TRIG_PORT, TRIG_PIN, GPIO_PIN_SET);
+	HAL_Delay_us(10);
+	HAL_GPIO_WritePin(TRIG_PORT, TRIG_PIN, GPIO_PIN_RESET);
+
+		      // Ждем начало Echo (низкий уровень)
+	uint32_t timeout = HAL_GetTick();
+	while (HAL_GPIO_ReadPin(ECHO_PORT, ECHO_PIN) && (HAL_GetTick() - timeout < 100));
+
+		      // Ждем конец Echo (высокий уровень)
+		timeout = HAL_GetTick();
+		__HAL_TIM_SET_COUNTER(&htim1, 0);
+		while (!HAL_GPIO_ReadPin(ECHO_PORT, ECHO_PIN) && (HAL_GetTick() - timeout < 100));
+
+		if (HAL_GetTick() - timeout >= 100) {
+		          distance = 55;  // Таймаут - все еще 55?
+		} else {
+		          // Измеряем длительность высокого уровня
+		      uint32_t start_time = __HAL_TIM_GET_COUNTER(&htim1);
+		      timeout = HAL_GetTick();
+		      while (HAL_GPIO_ReadPin(ECHO_PORT, ECHO_PIN) && (HAL_GetTick() - timeout < 50));
+		      uint32_t end_time = __HAL_TIM_GET_COUNTER(&htim1);
+
+		      uint32_t pulse_duration = end_time - start_time;
+		     distance = pulse_duration * 0.034 / 2;  // см
+
+		          // Ограничение разумного диапазона
+		     if (distance > 400) distance = 2;
+		      }
+
+	return distance;
+}
+
+void graphAxes(){
+	SSD1306_DrawLine(0, 0, 127, 0, SSD1306_COLOR_WHITE);
+	    SSD1306_DrawLine(0, 63, 127, 63, SSD1306_COLOR_WHITE);
+	    SSD1306_DrawLine(2, 0, 2, 63, SSD1306_COLOR_WHITE);
+	    //  Y
+	    for(int y = 10; y < 63; y += 10){
+	        SSD1306_DrawLine(0, y, 5, y, SSD1306_COLOR_WHITE);
+	        int depth_m = y/10;
+	        char depth_str[4];
+	        sprintf(depth_str, "%d", depth_m);
+	        SSD1306_GotoXY(8, y-3);
+	        SSD1306_Puts(depth_str, &Font_7x10, SSD1306_COLOR_WHITE);
+	    }
+
+	    //  X
+	    for (int x_mark = 0; x_mark < 128; x_mark += 10) {
+	        SSD1306_DrawLine(x_mark, 60, x_mark, 63, SSD1306_COLOR_WHITE);
+	        int distance_m = x_mark / 10;
+	        if (distance_m <= 12) {
+	            char dist_str[4];
+	            sprintf(dist_str, "%d", distance_m);
+	            SSD1306_GotoXY(x_mark-3, 50);
+	            SSD1306_Puts(dist_str, &Font_7x10, SSD1306_COLOR_WHITE);
+	        }
+	    }
+}
+
+int scaleDepth(uint32_t depth_cm) {
+    int pixels = (depth_cm * 50) / MAXDEPTH;
+    if (pixels > 50) pixels = 50;
+    return pixels+1;
+}
 /* USER CODE END 0 */
 
 /**
@@ -85,94 +157,61 @@ int main(void)
 
   /* USER CODE BEGIN 2 */
   SSD1306_Init();
-  HAL_TIM_Base_Start(&htim1);  // ★ ЗАПУСК ТАЙМЕРА ★
-
-  int data[20] = {15, 15, 25, 35, 28, 18, 10, 20, 30, 40,
+  HAL_TIM_Base_Start(&htim1);
+  uint32_t historyData[HISTORYSIZE];
+  uint32_t HistoryIndex = 0;
+  uint32_t IndexStart = 0;
+  uint32_t DataCount = 0;
+  uint32_t data[20] = {15, 15, 25, 35, 28, 18, 10, 20, 30, 40,
                   32, 22, 12, 8, 16, 24, 34, 26, 18, 12};
   int x = 0;
-  uint32_t val1 = 0, val2 = 0;
   uint16_t distance = 0;
-  char string[15];
   /* USER CODE END 2 */
 
   while (1)
   {
-    // ★ ИЗМЕРЕНИЕ РАССТОЯНИЯ ★
-	  // ★ ИЗМЕРЕНИЕ РАССТОЯНИЯ ★
-	      SSD1306_Clear();
 
-	      // ★★ ЗАПУСКАЮЩИЙ ИМПУЛЬС НА TRIG ★★
-	      HAL_GPIO_WritePin(TRIG_PORT, TRIG_PIN, GPIO_PIN_RESET);
-	      HAL_Delay_us(2);
-	      HAL_GPIO_WritePin(TRIG_PORT, TRIG_PIN, GPIO_PIN_SET);
-	      HAL_Delay_us(10);
-	      HAL_GPIO_WritePin(TRIG_PORT, TRIG_PIN, GPIO_PIN_RESET);
+	SSD1306_Clear();
+	distance = getDistance();
 
-	      // Ждем начало Echo (низкий уровень)
-	      uint32_t timeout = HAL_GetTick();
-	      while (HAL_GPIO_ReadPin(ECHO_PORT, ECHO_PIN) && (HAL_GetTick() - timeout < 100));
+	historyData[HistoryIndex] = distance;
+	HistoryIndex ++;
+	if(HistoryIndex >= HISTORYSIZE){
+		HistoryIndex = 0;
+	}
 
-	      // Ждем конец Echo (высокий уровень)
-	      timeout = HAL_GetTick();
-	      __HAL_TIM_SET_COUNTER(&htim1, 0);
-	      while (!HAL_GPIO_ReadPin(ECHO_PORT, ECHO_PIN) && (HAL_GetTick() - timeout < 100));
+	if(DataCount < HISTORYSIZE){
+		DataCount++;
+	}
+	for(int i = 0; i < DataCount -1; i++){
+		uint32_t NowIndex = (HistoryIndex + i) % HISTORYSIZE;
+		uint32_t NextIndex = (HistoryIndex + i + 1) % HISTORYSIZE;
+		  int x0 = i * 2;
+		  int y0 = scaleDepth(historyData[NowIndex]);;
+		  int x1 = (i + 1) * 2;
+		  int y1 = scaleDepth(historyData[NextIndex]);;
+		  SSD1306_DrawLine(x0, y0, x1, y1, SSD1306_COLOR_WHITE);
 
-	      if (HAL_GetTick() - timeout >= 100) {
-	          distance = 55;  // Таймаут - все еще 55?
-	      } else {
-	          // Измеряем длительность высокого уровня
-	          uint32_t start_time = __HAL_TIM_GET_COUNTER(&htim1);
-	          timeout = HAL_GetTick();
-	          while (HAL_GPIO_ReadPin(ECHO_PORT, ECHO_PIN) && (HAL_GetTick() - timeout < 50));
-	          uint32_t end_time = __HAL_TIM_GET_COUNTER(&htim1);
+	}
 
-	          uint32_t pulse_duration = end_time - start_time;
-	          distance = pulse_duration * 0.034 / 2;  // см
-
-	          // Ограничение разумного диапазона
-	          if (distance > 400) distance = 2;
-	      }
-
-    // ★ ВЫВОД РАССТОЯНИЯ НА ЭКРАН ★
     char depth_str[10];
     sprintf(depth_str, "%d cm", distance);
-    SSD1306_GotoXY(20, 0);
-    SSD1306_Puts(depth_str, &Font_16x26, SSD1306_COLOR_WHITE);
+    SSD1306_GotoXY(40, 0);
+    SSD1306_Puts(depth_str, &Font_7x10, SSD1306_COLOR_WHITE);
 
-    // ★ ОСИ ГРАФИКА ★
-    SSD1306_DrawLine(0, 0, 127, 0, SSD1306_COLOR_WHITE);
-    SSD1306_DrawLine(0, 63, 127, 63, SSD1306_COLOR_WHITE);
-    SSD1306_DrawLine(2, 0, 2, 63, SSD1306_COLOR_WHITE);
-
-    for(int y = 10; y < 63; y += 10){
-        SSD1306_DrawLine(0, y, 5, y, SSD1306_COLOR_WHITE);
-        int depth_m = y/10;
-        char depth_str[4];
-        sprintf(depth_str, "%d", depth_m);
-        SSD1306_GotoXY(8, y-3);
-        SSD1306_Puts(depth_str, &Font_7x10, SSD1306_COLOR_WHITE);
-    }
-
-    // ★ РАЗМЕТКА ОСИ X ★
-    for (int x_mark = 0; x_mark < 128; x_mark += 10) {
-        SSD1306_DrawLine(x_mark, 60, x_mark, 63, SSD1306_COLOR_WHITE);
-        int distance_m = x_mark / 10;
-        if (distance_m <= 12) {
-            char dist_str[4];
-            sprintf(dist_str, "%d", distance_m);
-            SSD1306_GotoXY(x_mark-3, 50);
-            SSD1306_Puts(dist_str, &Font_7x10, SSD1306_COLOR_WHITE);
-        }
-    }
+    graphAxes();
 
 
-    for (int i = 0 + x; i < 19; i++) {
-        int x0 = i * 10 - x * 10;
-        int y0 = 63 - data[i];
-        int x1 = (i+1) * 10 - x * 10;
-        int y1 = 63 - data[i+1];
-        SSD1306_DrawLine(x0, y0, x1, y1, SSD1306_COLOR_WHITE);
-    }
+//    for (int i = 0 + x; i < 19; i++) {
+//        int x0 = i * 10 - x * 10;
+//        int y0 = 63 - data[i];
+//        int x1 = (i+1) * 10 - x * 10;
+//        int y1 = 63 - data[i+1];
+//        SSD1306_DrawLine(x0, y0, x1, y1, SSD1306_COLOR_WHITE);
+//    }
+
+
+
 
     x++;
     SSD1306_UpdateScreen();
