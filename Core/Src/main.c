@@ -141,6 +141,50 @@ int scaleDepth(uint32_t depth_cm) {
     if (pixels > 50) pixels = 50;
     return pixels+1;
 }
+int scaleDepthChanged(uint32_t depth_cm, const uint32_t MaxFixedDepth) {
+    int pixels = (depth_cm * 50) / MaxFixedDepth;
+    if (pixels > 50) pixels = 50;
+    return pixels+1;
+}
+void drawConstGraph(const uint32_t DataCount, const uint32_t HistoryIndex, const uint32_t historyData[HISTORYSIZE]){
+	for(int i = 0; i < DataCount -1; i++){
+			uint32_t NowIndex = (HistoryIndex + i) % HISTORYSIZE;
+			uint32_t NextIndex = (HistoryIndex + i + 1) % HISTORYSIZE;
+			  int x0 = i * 2;
+			  int y0 = scaleDepth(historyData[NowIndex]);
+			  int x1 = (i + 1) * 2;
+			  int y1 = scaleDepth(historyData[NextIndex]);
+			  SSD1306_DrawLine(x0, y0, x1, y1, SSD1306_COLOR_WHITE);
+
+		}
+}
+
+uint32_t findMaxDepthHistory(const uint32_t DataCount, const uint32_t HistoryIndex, const uint32_t historyData[HISTORYSIZE]){
+	uint32_t MaxFixedDepth = 0;
+	for(int i = 0; i < DataCount -1; i++){
+		uint32_t NowIndex = (HistoryIndex + i) % HISTORYSIZE;
+		if (MaxFixedDepth < historyData[NowIndex]){
+			MaxFixedDepth = historyData[NowIndex];
+		}
+	}
+	return  MaxFixedDepth + MaxFixedDepth/5;
+
+}
+void drawChangedGraph(const uint32_t DataCount, const uint32_t HistoryIndex, const uint32_t historyData[HISTORYSIZE]){
+	uint32_t MaxFixedDepth = findMaxDepthHistory(DataCount, HistoryIndex, historyData);
+	if (MaxFixedDepth < 50){MaxFixedDepth = 50;}
+	for(int i = 0; i < DataCount -1; i++){
+			uint32_t NowIndex = (HistoryIndex + i) % HISTORYSIZE;
+			uint32_t NextIndex = (HistoryIndex + i + 1) % HISTORYSIZE;
+			  int x0 = i * 2;
+			  int y0 = scaleDepthChanged(historyData[NowIndex], MaxFixedDepth);
+			  int x1 = (i + 1) * 2;
+			  int y1 = scaleDepthChanged(historyData[NextIndex], MaxFixedDepth);
+			  SSD1306_DrawLine(x0, y0, x1, y1, SSD1306_COLOR_WHITE);
+
+		}
+}
+
 /* USER CODE END 0 */
 
 /**
@@ -160,12 +204,13 @@ int main(void)
   HAL_TIM_Base_Start(&htim1);
   uint32_t historyData[HISTORYSIZE];
   uint32_t HistoryIndex = 0;
-  uint32_t IndexStart = 0;
+ // uint32_t IndexStart = 0;
   uint32_t DataCount = 0;
-  uint32_t data[20] = {15, 15, 25, 35, 28, 18, 10, 20, 30, 40,
-                  32, 22, 12, 8, 16, 24, 34, 26, 18, 12};
+ // uint32_t data[20] = {15, 15, 25, 35, 28, 18, 10, 20, 30, 40,
+                 // 32, 22, 12, 8, 16, 24, 34, 26, 18, 12};
   int x = 0;
   uint16_t distance = 0;
+  uint16_t MaxFixedDepth = 0;
   /* USER CODE END 2 */
 
   while (1)
@@ -176,6 +221,7 @@ int main(void)
 
 	historyData[HistoryIndex] = distance;
 	HistoryIndex ++;
+	if(distance > MaxFixedDepth){MaxFixedDepth = distance;}
 	if(HistoryIndex >= HISTORYSIZE){
 		HistoryIndex = 0;
 	}
@@ -183,25 +229,32 @@ int main(void)
 	if(DataCount < HISTORYSIZE){
 		DataCount++;
 	}
-	for(int i = 0; i < DataCount -1; i++){
-		uint32_t NowIndex = (HistoryIndex + i) % HISTORYSIZE;
-		uint32_t NextIndex = (HistoryIndex + i + 1) % HISTORYSIZE;
-		  int x0 = i * 2;
-		  int y0 = scaleDepth(historyData[NowIndex]);;
-		  int x1 = (i + 1) * 2;
-		  int y1 = scaleDepth(historyData[NextIndex]);;
-		  SSD1306_DrawLine(x0, y0, x1, y1, SSD1306_COLOR_WHITE);
+	//drawConstGraph(DataCount, HistoryIndex, historyData);
+	drawChangedGraph(DataCount, HistoryIndex, historyData);
 
-	}
+//	for(int i = 0; i < DataCount -1; i++){
+//		uint32_t NowIndex = (HistoryIndex + i) % HISTORYSIZE;
+//		uint32_t NextIndex = (HistoryIndex + i + 1) % HISTORYSIZE;
+//		  int x0 = i * 2;
+//		  int y0 = scaleDepth(historyData[NowIndex]);;
+//		  int x1 = (i + 1) * 2;
+//		  int y1 = scaleDepth(historyData[NextIndex]);;
+//		  SSD1306_DrawLine(x0, y0, x1, y1, SSD1306_COLOR_WHITE);
+//
+//	}
 
     char depth_str[10];
     sprintf(depth_str, "%d cm", distance);
-    SSD1306_GotoXY(40, 0);
+    SSD1306_GotoXY(10, 2);
     SSD1306_Puts(depth_str, &Font_7x10, SSD1306_COLOR_WHITE);
+    char max_depth_str[15];
+    sprintf(max_depth_str, "max %d cm", MaxFixedDepth);
+    SSD1306_GotoXY(50, 2);
+    SSD1306_Puts(max_depth_str, &Font_7x10, SSD1306_COLOR_WHITE);
 
     graphAxes();
 
-
+//на тестовом множестве
 //    for (int i = 0 + x; i < 19; i++) {
 //        int x0 = i * 10 - x * 10;
 //        int y0 = 63 - data[i];
