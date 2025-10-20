@@ -86,7 +86,7 @@ void HAL_Delay_us(uint16_t us)
 
 uint16_t getDistance(){
 	uint16_t distance = 0;
-	 // ★★ ЗАПУСКАЮЩИЙ ИМПУЛЬС НА TRIG ★★
+	 //ЗАПУСКАЮЩИЙ ИМПУЛЬС
 	HAL_GPIO_WritePin(TRIG_PORT, TRIG_PIN, GPIO_PIN_RESET);
 	HAL_Delay_us(2);
 	HAL_GPIO_WritePin(TRIG_PORT, TRIG_PIN, GPIO_PIN_SET);
@@ -112,61 +112,62 @@ uint16_t getDistance(){
 		      uint32_t end_time = __HAL_TIM_GET_COUNTER(&htim1);
 
 		      uint32_t pulse_duration = end_time - start_time;
-		     distance = pulse_duration * 0.034 / 2;  // см
+		     distance = pulse_duration * 0.034 / 2;
 
-		          // Ограничение разумного диапазона
-		     if (distance > 400) distance = 2;
+		     if (distance > 400) distance = 390;
 		      }
 
 	return distance;
 }
 
-void graphAxes(){
+void graphAxes(uint32_t MaxFixedDepth){
 	SSD1306_DrawLine(0, 0, 127, 0, SSD1306_COLOR_WHITE);
-	    SSD1306_DrawLine(0, 63, 127, 63, SSD1306_COLOR_WHITE);
-	    SSD1306_DrawLine(2, 0, 2, 63, SSD1306_COLOR_WHITE);
+	SSD1306_DrawLine(0, 63, 127, 63, SSD1306_COLOR_WHITE);
+	SSD1306_DrawLine(2, 0, 2, 63, SSD1306_COLOR_WHITE);
 	    //  Y
-	    for(int y = 10; y < 63; y += 10){
-	        SSD1306_DrawLine(0, y, 5, y, SSD1306_COLOR_WHITE);
-	        int depth_m = y/10;
-	        char depth_str[4];
-	        sprintf(depth_str, "%d", depth_m);
-	        SSD1306_GotoXY(8, y-3);
-	        SSD1306_Puts(depth_str, &Font_7x10, SSD1306_COLOR_WHITE);
-	    }
+	for(int i = 0; i <= 5; i++){
+	    int y = i * 12; // 5 рисок на 60 пикселей
+	    SSD1306_DrawLine(0, y, 5, y, SSD1306_COLOR_WHITE);
+	    char depth_str[8];
+	    int depth_value = i * (MaxFixedDepth / 5); //автомасштаб
+	    sprintf(depth_str, "%d", depth_value);
+	    SSD1306_GotoXY(8, y-3);
+	    SSD1306_Puts(depth_str, &Font_7x10, SSD1306_COLOR_WHITE);
+	 }
 
 	    //  X
-	    for (int x_mark = 0; x_mark < 128; x_mark += 10) {
-	        SSD1306_DrawLine(x_mark, 60, x_mark, 63, SSD1306_COLOR_WHITE);
-	        int distance_m = x_mark / 10;
-	        if (distance_m <= 12) {
-	            char dist_str[4];
-	            sprintf(dist_str, "%d", distance_m);
-	            SSD1306_GotoXY(x_mark-3, 50);
-	            SSD1306_Puts(dist_str, &Font_7x10, SSD1306_COLOR_WHITE);
-	        }
+	 for (int x_mark = 0; x_mark < 128; x_mark += 10) {
+	    SSD1306_DrawLine(x_mark, 60, x_mark, 63, SSD1306_COLOR_WHITE);
+	    int distance_m = x_mark / 10;
+	    if (distance_m <= 12) {
+//	        char dist_str[4];
+//	        sprintf(dist_str, "%d", distance_m);
+//	        SSD1306_GotoXY(x_mark-3, 50);
+//	        SSD1306_Puts(dist_str, &Font_7x10, SSD1306_COLOR_WHITE);
 	    }
+	 }
 }
 
 int scaleDepth(uint32_t depth_cm) {
-    int pixels = (depth_cm * 50) / MAXDEPTH;
-    if (pixels > 50) pixels = 50;
+    int pixels = (depth_cm * 63) / MAXDEPTH;
+    if (pixels > 63) pixels = 63;
     return pixels+1;
 }
 int scaleDepthChanged(uint32_t depth_cm, const uint32_t MaxFixedDepth) {
-    int pixels = (depth_cm * 50) / MaxFixedDepth;
-    if (pixels > 50) pixels = 50;
+    int pixels = (depth_cm * 63) / MaxFixedDepth;
+    if (pixels > 63) pixels = 63;
     return pixels+1;
 }
 void drawConstGraph(const uint32_t DataCount, const uint32_t HistoryIndex, const uint32_t historyData[HISTORYSIZE]){
+	graphAxes(MAXDEPTH);
 	for(int i = 0; i < DataCount -1; i++){
-			uint32_t NowIndex = (HistoryIndex + i) % HISTORYSIZE;
-			uint32_t NextIndex = (HistoryIndex + i + 1) % HISTORYSIZE;
-			  int x0 = i * 2;
-			  int y0 = scaleDepth(historyData[NowIndex]);
-			  int x1 = (i + 1) * 2;
-			  int y1 = scaleDepth(historyData[NextIndex]);
-			  SSD1306_DrawLine(x0, y0, x1, y1, SSD1306_COLOR_WHITE);
+		uint32_t NowIndex = (HistoryIndex + i) % HISTORYSIZE;
+		uint32_t NextIndex = (HistoryIndex + i + 1) % HISTORYSIZE;
+		int x0 = i * 2;
+		int y0 = scaleDepth(historyData[NowIndex]);
+		int x1 = (i + 1) * 2;
+		int y1 = scaleDepth(historyData[NextIndex]);
+		SSD1306_DrawLine(x0, y0, x1, y1, SSD1306_COLOR_WHITE);
 
 		}
 }
@@ -179,23 +180,27 @@ uint32_t findMaxDepthHistory(const uint32_t DataCount, const uint32_t HistoryInd
 			MaxFixedDepth = historyData[NowIndex];
 		}
 	}
+
 	return  MaxFixedDepth + MaxFixedDepth/5;
 
 }
 void drawChangedGraph(const uint32_t DataCount, const uint32_t HistoryIndex, const uint32_t historyData[HISTORYSIZE]){
 	uint32_t MaxFixedDepth = findMaxDepthHistory(DataCount, HistoryIndex, historyData);
 	if (MaxFixedDepth < 50){MaxFixedDepth = 50;}
+	graphAxes(MaxFixedDepth);
 	for(int i = 0; i < DataCount -1; i++){
-			uint32_t NowIndex = (HistoryIndex + i) % HISTORYSIZE;
-			uint32_t NextIndex = (HistoryIndex + i + 1) % HISTORYSIZE;
-			  int x0 = i * 2;
-			  int y0 = scaleDepthChanged(historyData[NowIndex], MaxFixedDepth);
-			  int x1 = (i + 1) * 2;
-			  int y1 = scaleDepthChanged(historyData[NextIndex], MaxFixedDepth);
-			  SSD1306_DrawLine(x0, y0, x1, y1, SSD1306_COLOR_WHITE);
+		uint32_t NowIndex = (HistoryIndex + i) % HISTORYSIZE;
+		uint32_t NextIndex = (HistoryIndex + i + 1) % HISTORYSIZE;
+		int x0 = i * 2;
+		int y0 = scaleDepthChanged(historyData[NowIndex], MaxFixedDepth);
+		int x1 = (i + 1) * 2;
+		int y1 = scaleDepthChanged(historyData[NextIndex], MaxFixedDepth);
+		SSD1306_DrawLine(x0, y0, x1, y1, SSD1306_COLOR_WHITE);
 
 		}
 }
+
+
 
 int16_t encodefDiff(){
     static uint16_t lastData = 0;
@@ -215,10 +220,10 @@ int16_t encodefDiff(){
 }
 
 int16_t changerMode(){
-    int16_t diff = encodefDiff();  // ★ int16_t вместо uint16_t!
+    int16_t diff = encodefDiff();
     int16_t steps = diff;
     if (diff != 0){
-        currentMode = (currentMode + steps + 400) % 4;  // ★ +400 чтобы избежать отрицательных
+        currentMode = (currentMode + steps + 400) % 4;  //  +400 чтобы избежать отрицательных
     }
 
     return diff/8;
@@ -264,11 +269,7 @@ int main(void)
   HAL_TIM_Encoder_Start(&htim2, TIM_CHANNEL_ALL);
   uint32_t historyData[HISTORYSIZE];
   uint32_t HistoryIndex = 0;
- // uint32_t IndexStart = 0;
   uint32_t DataCount = 0;
- // uint32_t data[20] = {15, 15, 25, 35, 28, 18, 10, 20, 30, 40,
-                 // 32, 22, 12, 8, 16, 24, 34, 26, 18, 12};
-  int x = 0;
   uint16_t distance = 0;
   uint16_t MaxFixedDepth = 0;
   /* USER CODE END 2 */
@@ -292,23 +293,26 @@ int main(void)
 	  	DataCount++;
 	  }
 	  char depth_str[15];
-	  //int16_t temp = changerMode();
 	  switch(currentMode){
 	  case CONST_GRAPH_MODE:
 		  drawConstGraph(DataCount, HistoryIndex, historyData);
 
 		  sprintf(depth_str, "Const");
-		  SSD1306_GotoXY(40, 30);
+		  SSD1306_GotoXY(90, 50);
 		  SSD1306_Puts(depth_str, &Font_7x10, SSD1306_COLOR_WHITE);
-		  graphAxes();
+		  sprintf(depth_str, "%d cm", distance);
+		  SSD1306_GotoXY(90, 40);
+		  SSD1306_Puts(depth_str, &Font_7x10, SSD1306_COLOR_WHITE);
 		  break;
 	  case FLEX_GRAPH_MODE:
 		  drawChangedGraph(DataCount, HistoryIndex, historyData);
 
 		  sprintf(depth_str, "Flex");
-		  SSD1306_GotoXY(40, 30);
+		  SSD1306_GotoXY(90, 2);
 		  SSD1306_Puts(depth_str, &Font_7x10, SSD1306_COLOR_WHITE);
-		  graphAxes();
+		  sprintf(depth_str, "%d cm", distance);
+		  SSD1306_GotoXY(90, 10);
+		  SSD1306_Puts(depth_str, &Font_7x10, SSD1306_COLOR_WHITE);
 		  break;
 	  case MAX_DEPTH_MODE:
 	  {
@@ -330,53 +334,10 @@ int main(void)
 		  sprintf(depth_str, "Settings");
 		  SSD1306_GotoXY(20, 10);
 		  SSD1306_Puts(depth_str, &Font_11x18, SSD1306_COLOR_WHITE);
+
 		  break;
 
 	  }
-	  	//drawConstGraph(DataCount, HistoryIndex, historyData);
-	  //drawChangedGraph(DataCount, HistoryIndex, historyData);
-
-	  //	for(int i = 0; i < DataCount -1; i++){
-	  //		uint32_t NowIndex = (HistoryIndex + i) % HISTORYSIZE;
-	  //		uint32_t NextIndex = (HistoryIndex + i + 1) % HISTORYSIZE;
-	  //		  int x0 = i * 2;
-	  //		  int y0 = scaleDepth(historyData[NowIndex]);;
-	  //		  int x1 = (i + 1) * 2;
-	  //		  int y1 = scaleDepth(historyData[NextIndex]);;
-	  //		  SSD1306_DrawLine(x0, y0, x1, y1, SSD1306_COLOR_WHITE);
-	  //
-	  //	}
-
-	 // char depth_str[10];
-//	  sprintf(depth_str, "%d cm", distance);
-//	  SSD1306_GotoXY(10, 2);
-//	  SSD1306_Puts(depth_str, &Font_7x10, SSD1306_COLOR_WHITE);
-//	  char max_depth_str[15];
-//	  sprintf(max_depth_str, "max %d cm", temp);
-//	  SSD1306_GotoXY(50, 2);
-//	  SSD1306_Puts(max_depth_str, &Font_7x10, SSD1306_COLOR_WHITE);
-
-//	  uint16_t enc =encodefDiff();
-//	  sprintf(depth_str, "ENC %d", enc);
-//	  SSD1306_GotoXY(30, 30);
-//	  SSD1306_Puts(depth_str, &Font_7x10, SSD1306_COLOR_WHITE);
-
-
-	  //graphAxes();
-
-	  //на тестовом множестве
-	  //    for (int i = 0 + x; i < 19; i++) {
-	  //        int x0 = i * 10 - x * 10;
-	  //        int y0 = 63 - data[i];
-	  //        int x1 = (i+1) * 10 - x * 10;
-	  //        int y1 = 63 - data[i+1];
-	  //        SSD1306_DrawLine(x0, y0, x1, y1, SSD1306_COLOR_WHITE);
-	  //    }
-
-
-
-
-	   x++;
 	   SSD1306_UpdateScreen();
 	   HAL_Delay(100);
     /* USER CODE END WHILE */

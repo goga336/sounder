@@ -21,8 +21,6 @@ build/
 # STM32CubeIDE
 .metadata/
 *.launch
-.project
-.cproject
 
 # Keil uVision
 *.uvgui.*
