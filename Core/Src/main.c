@@ -39,6 +39,16 @@
 #define ECHO_PORT GPIOA
 #define HISTORYSIZE  64
 #define MAXDEPTH  400
+
+typedef enum {
+    CONST_GRAPH_MODE,
+    FLEX_GRAPH_MODE,
+    MAX_DEPTH_MODE,
+    MODE_SETTINGS
+} DisplayMode;
+
+DisplayMode currentMode = FLEX_GRAPH_MODE;
+
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -50,6 +60,7 @@
 I2C_HandleTypeDef hi2c1;
 
 TIM_HandleTypeDef htim1;
+TIM_HandleTypeDef htim2;
 
 /* USER CODE BEGIN PV */
 
@@ -60,6 +71,7 @@ void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_I2C1_Init(void);
 static void MX_TIM1_Init(void);
+static void MX_TIM2_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
@@ -185,6 +197,33 @@ void drawChangedGraph(const uint32_t DataCount, const uint32_t HistoryIndex, con
 		}
 }
 
+int16_t encodefDiff(){
+    static uint16_t lastData = 0;
+    uint16_t currentData = __HAL_TIM_GET_COUNTER(&htim2);
+    int16_t diff = (int16_t)(currentData - lastData);
+
+    // Обработка переполнения
+    if(diff > 32767) {
+        diff -= 65536;
+    }
+    else if(diff < -32767) {
+        diff += 65536;
+    }
+
+    lastData = currentData;
+    return diff;
+}
+
+int16_t changerMode(){
+    int16_t diff = encodefDiff();  // ★ int16_t вместо uint16_t!
+    int16_t steps = diff;
+    if (diff != 0){
+        currentMode = (currentMode + steps + 400) % 4;  // ★ +400 чтобы избежать отрицательных
+    }
+
+    return diff/8;
+}
+
 /* USER CODE END 0 */
 
 /**
@@ -193,15 +232,36 @@ void drawChangedGraph(const uint32_t DataCount, const uint32_t HistoryIndex, con
   */
 int main(void)
 {
+
+  /* USER CODE BEGIN 1 */
+
+  /* USER CODE END 1 */
+
+  /* MCU Configuration--------------------------------------------------------*/
+
+  /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
   HAL_Init();
+
+  /* USER CODE BEGIN Init */
+
+  /* USER CODE END Init */
+
+  /* Configure the system clock */
   SystemClock_Config();
+
+  /* USER CODE BEGIN SysInit */
+
+  /* USER CODE END SysInit */
+
+  /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_I2C1_Init();
   MX_TIM1_Init();
-
+  MX_TIM2_Init();
   /* USER CODE BEGIN 2 */
   SSD1306_Init();
   HAL_TIM_Base_Start(&htim1);
+  HAL_TIM_Encoder_Start(&htim2, TIM_CHANNEL_ALL);
   uint32_t historyData[HISTORYSIZE];
   uint32_t HistoryIndex = 0;
  // uint32_t IndexStart = 0;
@@ -213,64 +273,117 @@ int main(void)
   uint16_t MaxFixedDepth = 0;
   /* USER CODE END 2 */
 
+  /* Infinite loop */
+  /* USER CODE BEGIN WHILE */
   while (1)
   {
+	  SSD1306_Clear();
 
-	SSD1306_Clear();
-	distance = getDistance();
+	  distance = getDistance();
+	  changerMode();
+	  historyData[HistoryIndex] = distance;
+	  HistoryIndex ++;
+	  if(distance > MaxFixedDepth){MaxFixedDepth = distance;}
+	  if(HistoryIndex >= HISTORYSIZE){
+	  	HistoryIndex = 0;
+	  }
 
-	historyData[HistoryIndex] = distance;
-	HistoryIndex ++;
-	if(distance > MaxFixedDepth){MaxFixedDepth = distance;}
-	if(HistoryIndex >= HISTORYSIZE){
-		HistoryIndex = 0;
-	}
+	  if(DataCount < HISTORYSIZE){
+	  	DataCount++;
+	  }
+	  char depth_str[15];
+	  //int16_t temp = changerMode();
+	  switch(currentMode){
+	  case CONST_GRAPH_MODE:
+		  drawConstGraph(DataCount, HistoryIndex, historyData);
 
-	if(DataCount < HISTORYSIZE){
-		DataCount++;
-	}
-	//drawConstGraph(DataCount, HistoryIndex, historyData);
-	drawChangedGraph(DataCount, HistoryIndex, historyData);
+		  sprintf(depth_str, "Const");
+		  SSD1306_GotoXY(40, 30);
+		  SSD1306_Puts(depth_str, &Font_7x10, SSD1306_COLOR_WHITE);
+		  graphAxes();
+		  break;
+	  case FLEX_GRAPH_MODE:
+		  drawChangedGraph(DataCount, HistoryIndex, historyData);
 
-//	for(int i = 0; i < DataCount -1; i++){
-//		uint32_t NowIndex = (HistoryIndex + i) % HISTORYSIZE;
-//		uint32_t NextIndex = (HistoryIndex + i + 1) % HISTORYSIZE;
-//		  int x0 = i * 2;
-//		  int y0 = scaleDepth(historyData[NowIndex]);;
-//		  int x1 = (i + 1) * 2;
-//		  int y1 = scaleDepth(historyData[NextIndex]);;
-//		  SSD1306_DrawLine(x0, y0, x1, y1, SSD1306_COLOR_WHITE);
-//
-//	}
+		  sprintf(depth_str, "Flex");
+		  SSD1306_GotoXY(40, 30);
+		  SSD1306_Puts(depth_str, &Font_7x10, SSD1306_COLOR_WHITE);
+		  graphAxes();
+		  break;
+	  case MAX_DEPTH_MODE:
+	  {
+		  SSD1306_Clear();
+		  sprintf(depth_str, "Info");
+		  SSD1306_GotoXY(20, 10);
+		  SSD1306_Puts(depth_str, &Font_11x18, SSD1306_COLOR_WHITE);
+		  sprintf(depth_str, "%d cm", distance);
+		  SSD1306_GotoXY(10, 10);
+		  SSD1306_Puts(depth_str, &Font_11x18, SSD1306_COLOR_WHITE);
+		  char max_depth_str[15];
+		  sprintf(max_depth_str, "max %d cm", MaxFixedDepth);
+		  SSD1306_GotoXY(10, 40);
+		  SSD1306_Puts(max_depth_str, &Font_11x18, SSD1306_COLOR_WHITE);
+		  break;
+	  }
+	  case MODE_SETTINGS:
+		  SSD1306_Clear();
+		  sprintf(depth_str, "Settings");
+		  SSD1306_GotoXY(20, 10);
+		  SSD1306_Puts(depth_str, &Font_11x18, SSD1306_COLOR_WHITE);
+		  break;
 
-    char depth_str[10];
-    sprintf(depth_str, "%d cm", distance);
-    SSD1306_GotoXY(10, 2);
-    SSD1306_Puts(depth_str, &Font_7x10, SSD1306_COLOR_WHITE);
-    char max_depth_str[15];
-    sprintf(max_depth_str, "max %d cm", MaxFixedDepth);
-    SSD1306_GotoXY(50, 2);
-    SSD1306_Puts(max_depth_str, &Font_7x10, SSD1306_COLOR_WHITE);
+	  }
+	  	//drawConstGraph(DataCount, HistoryIndex, historyData);
+	  //drawChangedGraph(DataCount, HistoryIndex, historyData);
 
-    graphAxes();
+	  //	for(int i = 0; i < DataCount -1; i++){
+	  //		uint32_t NowIndex = (HistoryIndex + i) % HISTORYSIZE;
+	  //		uint32_t NextIndex = (HistoryIndex + i + 1) % HISTORYSIZE;
+	  //		  int x0 = i * 2;
+	  //		  int y0 = scaleDepth(historyData[NowIndex]);;
+	  //		  int x1 = (i + 1) * 2;
+	  //		  int y1 = scaleDepth(historyData[NextIndex]);;
+	  //		  SSD1306_DrawLine(x0, y0, x1, y1, SSD1306_COLOR_WHITE);
+	  //
+	  //	}
 
-//на тестовом множестве
-//    for (int i = 0 + x; i < 19; i++) {
-//        int x0 = i * 10 - x * 10;
-//        int y0 = 63 - data[i];
-//        int x1 = (i+1) * 10 - x * 10;
-//        int y1 = 63 - data[i+1];
-//        SSD1306_DrawLine(x0, y0, x1, y1, SSD1306_COLOR_WHITE);
-//    }
+	 // char depth_str[10];
+//	  sprintf(depth_str, "%d cm", distance);
+//	  SSD1306_GotoXY(10, 2);
+//	  SSD1306_Puts(depth_str, &Font_7x10, SSD1306_COLOR_WHITE);
+//	  char max_depth_str[15];
+//	  sprintf(max_depth_str, "max %d cm", temp);
+//	  SSD1306_GotoXY(50, 2);
+//	  SSD1306_Puts(max_depth_str, &Font_7x10, SSD1306_COLOR_WHITE);
+
+//	  uint16_t enc =encodefDiff();
+//	  sprintf(depth_str, "ENC %d", enc);
+//	  SSD1306_GotoXY(30, 30);
+//	  SSD1306_Puts(depth_str, &Font_7x10, SSD1306_COLOR_WHITE);
+
+
+	  //graphAxes();
+
+	  //на тестовом множестве
+	  //    for (int i = 0 + x; i < 19; i++) {
+	  //        int x0 = i * 10 - x * 10;
+	  //        int y0 = 63 - data[i];
+	  //        int x1 = (i+1) * 10 - x * 10;
+	  //        int y1 = 63 - data[i+1];
+	  //        SSD1306_DrawLine(x0, y0, x1, y1, SSD1306_COLOR_WHITE);
+	  //    }
 
 
 
 
-    x++;
-    SSD1306_UpdateScreen();
-    HAL_Delay(100);
+	   x++;
+	   SSD1306_UpdateScreen();
+	   HAL_Delay(100);
+    /* USER CODE END WHILE */
 
+    /* USER CODE BEGIN 3 */
   }
+  /* USER CODE END 3 */
 }
 
 /**
@@ -376,9 +489,6 @@ static void MX_TIM1_Init(void)
     Error_Handler();
   }
   sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
-  sClockSourceConfig.ClockPolarity = TIM_CLOCKPOLARITY_NONINVERTED;
-  sClockSourceConfig.ClockPrescaler = TIM_CLOCKPRESCALER_DIV1;
-  sClockSourceConfig.ClockFilter = 0;
   if (HAL_TIM_ConfigClockSource(&htim1, &sClockSourceConfig) != HAL_OK)
   {
     Error_Handler();
@@ -392,6 +502,55 @@ static void MX_TIM1_Init(void)
   /* USER CODE BEGIN TIM1_Init 2 */
 
   /* USER CODE END TIM1_Init 2 */
+
+}
+
+/**
+  * @brief TIM2 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM2_Init(void)
+{
+
+  /* USER CODE BEGIN TIM2_Init 0 */
+
+  /* USER CODE END TIM2_Init 0 */
+
+  TIM_Encoder_InitTypeDef sConfig = {0};
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+
+  /* USER CODE BEGIN TIM2_Init 1 */
+
+  /* USER CODE END TIM2_Init 1 */
+  htim2.Instance = TIM2;
+  htim2.Init.Prescaler = 0;
+  htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim2.Init.Period = 65535;
+  htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  sConfig.EncoderMode = TIM_ENCODERMODE_TI1;
+  sConfig.IC1Polarity = TIM_ICPOLARITY_RISING;
+  sConfig.IC1Selection = TIM_ICSELECTION_DIRECTTI;
+  sConfig.IC1Prescaler = TIM_ICPSC_DIV1;
+  sConfig.IC1Filter = 0;
+  sConfig.IC2Polarity = TIM_ICPOLARITY_RISING;
+  sConfig.IC2Selection = TIM_ICSELECTION_DIRECTTI;
+  sConfig.IC2Prescaler = TIM_ICPSC_DIV1;
+  sConfig.IC2Filter = 0;
+  if (HAL_TIM_Encoder_Init(&htim2, &sConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim2, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM2_Init 2 */
+
+  /* USER CODE END TIM2_Init 2 */
 
 }
 
@@ -413,19 +572,19 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOB_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_3|GPIO_PIN_12, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_12, GPIO_PIN_RESET);
 
-  /*Configure GPIO pins : PA3 PA12 */
-  GPIO_InitStruct.Pin = GPIO_PIN_3|GPIO_PIN_12;
+  /*Configure GPIO pins : PA2 PA15 */
+  GPIO_InitStruct.Pin = GPIO_PIN_2|GPIO_PIN_15;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : PA12 */
+  GPIO_InitStruct.Pin = GPIO_PIN_12;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
-
-  /*Configure GPIO pins : PA4 PA15 */
-  GPIO_InitStruct.Pin = GPIO_PIN_4|GPIO_PIN_15;
-  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
   /* USER CODE BEGIN MX_GPIO_Init_2 */
